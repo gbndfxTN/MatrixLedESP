@@ -1,7 +1,5 @@
 # ESP-IDF build
 build/
-# secret
-Application/app_core0/include/secrets.h
 #components
 managed_components/
 #dependencies
@@ -11,4 +9,6 @@ sdkconfig
 sdkconfig.defaults
 # secret
 Application/Network/include/secrets.h
-/.macro/
+# esp-idf
+esp-idf/
+
