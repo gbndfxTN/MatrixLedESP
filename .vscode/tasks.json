@@ -1,0 +1,46 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build",
+            "type": "shell",
+            "command": "bash -c 'source ${workspaceFolder}/esp-idf/export.sh && idf.py build'",
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            "label": "Flash (USB)",
+            "type": "shell",
+            "command": "bash -c 'source ${workspaceFolder}/esp-idf/export.sh && idf.py flash'",
+            "group": "build",
+            "problemMatcher": [],
+            "dependsOn": ["Build"]
+        },
+        {
+            "label": "Flash + Monitor (USB)",
+            "type": "shell",
+            "command": "bash -c 'source ${workspaceFolder}/esp-idf/export.sh && idf.py flash monitor'",
+            "group": "build",
+            "problemMatcher": [],
+            "dependsOn": ["Build"]
+        },
+        {
+            "label": "Monitor",
+            "type": "shell",
+            "command": "bash -c 'source ${workspaceFolder}/esp-idf/export.sh && idf.py monitor'",
+            "problemMatcher": []
+        },
+        {
+            "label": "Clean",
+            "type": "shell",
+            "command": "bash -c 'source ${workspaceFolder}/esp-idf/export.sh && idf.py fullclean'",
+            "problemMatcher": []
+        },
+        {
+            "label": "Clean LittleFS",
+            "type": "shell",
+            "command": "bash -c 'source ${workspaceFolder}/esp-idf/export.sh && python -m esptool --chip esp32s3 erase_region 0x420000 0xBE0000'",
+            "problemMatcher": []
+        }
+]
+}
