@@ -89,7 +89,7 @@ static void hub75_play_buffer(uint8_t *data, size_t bin_size)
     const size_t frame_bytes = sizeof(uint16_t) + (size_t)num_pixels * sizeof(uint16_t);
     const uint16_t frames = header->frame_count;
     uint16_t loops = header->loop_count;
-    if (loops == 0) loops = 1; // 0 = pas de lecture sinon ; on force au moins 1 passage
+    if (loops == 0) loops = 1;
 
     ESP_LOGI(TAG, "Lecture: %u frames, %d loops", frames, loops);
 
@@ -102,6 +102,8 @@ static void hub75_play_buffer(uint8_t *data, size_t bin_size)
                 return;
             }
 
+            int64_t frame_start_us = esp_timer_get_time();
+
             uint16_t delay_ms;
             memcpy(&delay_ms, cursor, sizeof(delay_ms));
             const uint8_t *pixels = cursor + sizeof(delay_ms);
@@ -110,15 +112,13 @@ static void hub75_play_buffer(uint8_t *data, size_t bin_size)
             s_driver->draw_pixels(0, 0, MATRIX_WIDTH, MATRIX_HEIGHT, pixels, Hub75PixelFormat::RGB565, Hub75ColorOrder::RGB, false);
             s_driver->flip_buffer();
 
-            /* Inter-frame : on attend le delai du GIF (draw + flip inclus). */
-            int64_t start_us = esp_timer_get_time();
             int64_t delay_us = (int64_t)delay_ms * 1000;
-            int64_t now_us;
-            do {
-                now_us = esp_timer_get_time();
-                if (now_us - start_us >= delay_us) break;
-                vTaskDelay(pdMS_TO_TICKS(10));
-            } while (1);
+            int64_t target_us = frame_start_us + delay_us;
+            int64_t now_us = esp_timer_get_time();
+            if (now_us < target_us) {
+                while (esp_timer_get_time() < target_us) {
+                }
+            }
         }
     }
 }
@@ -137,9 +137,9 @@ void hub75_run(void)
         uint8_t *data = getGifPsram(1);
         if (data) {
             ESP_LOGI(TAG, "GIF trouve dans la PSRAM");
-            setGifPsramState(data, 2); /* en cours sur le core 1 */
+            setGifPsramState(data, 2);
             hub75_play_buffer(data, getGifPsramLen(data));
-            resetGifPsram(data);       /* retour a l'etat libre */
+            resetGifPsram(data);
         }
         vTaskDelay(pdMS_TO_TICKS(100));
     }
