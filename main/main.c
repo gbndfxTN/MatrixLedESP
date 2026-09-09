@@ -14,7 +14,7 @@
 static const char *TAG = "TEST_GIF";
 
 /* Lien de test : a remplacer par le GIF heberge sur Firebase. */
-static const char *TEST_GIF_URL = "https://media.giphy.com/media/xT9IgzoKnwFNm04Iv6/giphy.gif";
+static const char *TEST_GIF_URL = "";
 
 static void task_gif(void *pvParameters) {
     ESP_LOGI(TAG, "Connexion WiFi...");

@@ -8,6 +8,8 @@
 #include <netdb.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include <errno.h>
 #include <unistd.h>
 #include <time.h>
@@ -16,7 +18,8 @@ static const char *TAG = "HTTPS";
 
 #define GIF_MAX_DOWNLOAD_SIZE (4 * 1024 * 1024)
 #define GIF_INITIAL_CHUNK     (32 * 1024)
-#define GIF_READ_RETRIES      3
+#define GIF_READ_STALL_LIMIT  3
+#define GIF_DOWNLOAD_ATTEMPTS 5
 
 
 static int resolve_host_from_url(const char *url, char *host, size_t host_len) {
@@ -28,6 +31,77 @@ static int resolve_host_from_url(const char *url, char *host, size_t host_len) {
     memcpy(host, p, len);
     host[len] = '\0';
     return 0;
+}
+
+/* Telecharge [start, capacity) dans buffer via une nouvelle connexion HTTPS
+ * (header Range). Retourne le nombre total d'octets valides dans buffer
+ * (start relus/repris inclus), ou 0 en cas d'echec definitif. */
+static size_t fetch_range_from(const char *url, uint8_t *buffer, size_t start, size_t capacity) {
+    char range_header[32];
+    esp_http_client_config_t config = {
+        .url = url,
+        .timeout_ms = 15000,
+        .crt_bundle_attach = esp_crt_bundle_attach,
+        .disable_auto_redirect = false,
+        .max_redirection_count = 5,
+        .buffer_size = 16384,
+        .user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    };
+
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    if (!client) {
+        ESP_LOGE(TAG, "Echec init client HTTP (retry)");
+        return 0;
+    }
+
+    if (start > 0) {
+        snprintf(range_header, sizeof(range_header), "bytes=%zu-", start);
+        esp_http_client_set_header(client, "Range", range_header);
+    }
+
+    if (esp_http_client_open(client, 0) != ESP_OK) {
+        ESP_LOGE(TAG, "Echec reouverture TLS (retry)");
+        esp_http_client_cleanup(client);
+        return 0;
+    }
+
+    int content_length = esp_http_client_fetch_headers(client);
+    int status = esp_http_client_get_status_code(client);
+
+    size_t offset = start;
+    if (start > 0) {
+        if (status == 206) {
+            ESP_LOGI(TAG, "Reprise Range OK: %zu octets deja lus, restant=%d", start, content_length);
+        } else {
+            ESP_LOGW(TAG, "Range non supporte (HTTP %d) - reprise depuis le debut", status);
+            offset = 0;
+        }
+    }
+
+    if (status < 200 || status >= 300) {
+        ESP_LOGE(TAG, "Reponse HTTP invalide au retry: %d", status);
+        esp_http_client_cleanup(client);
+        return 0;
+    }
+
+    int zero_reads = 0;
+    while (offset < capacity) {
+        int read_len = esp_http_client_read(client, (char *)buffer + offset, capacity - offset);
+        if (read_len < 0) {
+            ESP_LOGW(TAG, "Erreur lecture au retry: %d (%zu/%zu)", read_len, offset, capacity);
+            break;
+        }
+        if (read_len == 0) {
+            if (++zero_reads >= GIF_READ_STALL_LIMIT) break;
+            vTaskDelay(1);
+            continue;
+        }
+        zero_reads = 0;
+        offset += (size_t)read_len;
+    }
+
+    esp_http_client_cleanup(client);
+    return offset;
 }
 
 uint8_t* download_gif_https(const char *url, size_t *out_size) {
@@ -138,14 +212,20 @@ uint8_t* download_gif_https(const char *url, size_t *out_size) {
         }
 
         int zero_reads = 0;
+        bool stalled = false;
         while (total_read < capacity) {
             int read_len = esp_http_client_read(client, (char *)psram_buffer + total_read, capacity - total_read);
             if (read_len < 0) {
                 ESP_LOGE(TAG, "Erreur de lecture HTTP: %d", read_len);
+                stalled = true;
                 break;
             }
             if (read_len == 0) {
-                if (++zero_reads >= GIF_READ_RETRIES) break;
+                if (++zero_reads >= GIF_READ_STALL_LIMIT) {
+                    stalled = true;
+                    break;
+                }
+                vTaskDelay(1);
                 continue;
             }
             zero_reads = 0;
@@ -155,9 +235,28 @@ uint8_t* download_gif_https(const char *url, size_t *out_size) {
         esp_http_client_cleanup(client);
 
         if (total_read != capacity) {
-            ESP_LOGE(TAG, "Téléchargement interrompu (%d/%d octets lus)", (int)total_read, (int)capacity);
-            heap_caps_free(psram_buffer);
-            return NULL;
+            if (!stalled || total_read == 0) {
+                ESP_LOGE(TAG, "Téléchargement interrompu (%zu/%zu octets lus)", total_read, capacity);
+                heap_caps_free(psram_buffer);
+                return NULL;
+            }
+            ESP_LOGW(TAG, "Connection perdue a %zu/%zu octets - tentatives de reprise (Range)...",
+                     total_read, capacity);
+            for (int attempt = 1; attempt <= GIF_DOWNLOAD_ATTEMPTS && total_read < capacity; attempt++) {
+                vTaskDelay(pdMS_TO_TICKS(500));
+                size_t new_total = fetch_range_from(url, psram_buffer, total_read, capacity);
+                if (new_total > total_read) {
+                    ESP_LOGI(TAG, "Reprise %d: %zu/%zu octets", attempt, new_total, capacity);
+                    total_read = new_total;
+                } else {
+                    ESP_LOGW(TAG, "Reprise %d echouee", attempt);
+                }
+            }
+            if (total_read != capacity) {
+                ESP_LOGE(TAG, "Telechargement definitivement interrompu (%zu/%zu)", total_read, capacity);
+                heap_caps_free(psram_buffer);
+                return NULL;
+            }
         }
     } else {
         capacity = GIF_INITIAL_CHUNK;
@@ -199,7 +298,8 @@ uint8_t* download_gif_https(const char *url, size_t *out_size) {
                 return NULL;
             }
             if (read_len == 0) {
-                if (++zero_reads >= GIF_READ_RETRIES) break;
+                if (++zero_reads >= GIF_READ_STALL_LIMIT) break;
+                vTaskDelay(1);
                 continue;
             }
             zero_reads = 0;

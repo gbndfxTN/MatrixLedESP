@@ -115,9 +115,12 @@ static void hub75_play_buffer(uint8_t *data, size_t bin_size)
             int64_t delay_us = (int64_t)delay_ms * 1000;
             int64_t target_us = frame_start_us + delay_us;
             int64_t now_us = esp_timer_get_time();
-            if (now_us < target_us) {
-                while (esp_timer_get_time() < target_us) {
+            while (now_us < target_us) {
+                int64_t remaining_us = target_us - now_us;
+                if (remaining_us > 3 * 1000) {
+                    vTaskDelay(1);
                 }
+                now_us = esp_timer_get_time();
             }
         }
     }

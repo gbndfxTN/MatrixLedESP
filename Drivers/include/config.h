@@ -22,7 +22,7 @@
 #define DISPLAY_BRIGHTNESS            50
 #define DISPLAY_FPS                   30
 #define DISPLAY_GIF_FPS               10
-#define DISPLAY_GIF_LOOPS             3
+#define DISPLAY_GIF_LOOPS             20
 #define DISPLAY_INACTIVITY_TIMEOUT_MS 10000
 #define DISPLAY_FRAMEBUF_PUBLISH_MS   1000
 

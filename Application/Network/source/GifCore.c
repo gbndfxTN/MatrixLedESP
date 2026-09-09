@@ -4,6 +4,8 @@
 #include "GifPsram.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include <string.h>
 
 static const char *TAG = "GIFCORE";
@@ -100,6 +102,7 @@ bool download_gif(const char *url, const uint32_t id, const uint16_t loop_count,
         memcpy(&bin_buffer[bin_size + sizeof(uint16_t)], rgb_scaled, (size_t)num_pixels * sizeof(uint16_t));
         bin_size += frame_bytes;
         frame_counter++;
+        vTaskDelay(1);
     }
 
     if (frame_counter == 0) {

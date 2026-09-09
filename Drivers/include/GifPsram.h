@@ -3,7 +3,7 @@
 #include <stdint.h>
 #include "esp_err.h"
 
-#define CAP (1024 * 1024)
+#define CAP (2 * 1024 * 1024)
 
 typedef struct {
     uint8_t *data;
