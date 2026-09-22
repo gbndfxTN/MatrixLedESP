@@ -1,3 +1,4 @@
 dependencies:
   joltwallet/littlefs: ^1.22.2
   esphome/esp-hub75: ^0.3.6
+  espressif/cjson: "^1.7.19"

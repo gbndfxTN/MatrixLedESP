@@ -1,6 +1,7 @@
 #include "NetworkCore.h"
 #include "LittlefsCore.h"
 #include "GifCore.h"
+#include "TelegramCore.h"
 #include "config.h"
 #include "GifPsram.h"
 #include "Hub75Core.h"
@@ -11,10 +12,7 @@
 #include "freertos/task.h"
 #include <stdio.h>
 
-static const char *TAG = "TEST_GIF";
-
-/* Lien de test : a remplacer par le GIF heberge sur Firebase. */
-static const char *TEST_GIF_URL = "";
+static const char *TAG = "MAIN";
 
 static void task_gif(void *pvParameters) {
     ESP_LOGI(TAG, "Connexion WiFi...");
@@ -28,14 +26,24 @@ static void task_gif(void *pvParameters) {
     ESP_LOGI(TAG, "Montage LittleFS...");
     ESP_ERROR_CHECK(init_littlefs());
 
-    size_t bin_size = 0;
-    if (download_gif(TEST_GIF_URL, 1, DISPLAY_GIF_LOOPS, &bin_size)) {
-        ESP_LOGI(TAG, "GIF decodé (%zu octets) - le core HUB75 doit le prendre en charge", bin_size);
-    } else {
-        ESP_LOGE(TAG, "Telechargement/decodage GIF echoue");
-    }
+    char url[256];
+    uint16_t loops;
+    uint32_t id;
 
-    vTaskDelete(NULL);
+    ESP_LOGI(TAG, "En attente de commandes Telegram (long poll %d s)...",
+             TELEGRAM_POLL_TIMEOUT_S);
+    while (1) {
+        if (gif_command_fetch(url, sizeof(url), &loops, &id)) {
+            size_t bin_size = 0;
+            if (download_gif(url, id, loops, &bin_size)) {
+                ESP_LOGI(TAG, "GIF decodé (%zu octets) - en attente du core HUB75", bin_size);
+            } else {
+                ESP_LOGE(TAG, "Telechargement/decodage GIF echoue");
+            }
+        } else {
+            vTaskDelay(pdMS_TO_TICKS(2000));
+        }
+    }
 }
 
 static void task_hub75_test(void *pvParameters) {

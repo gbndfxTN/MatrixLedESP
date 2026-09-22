@@ -13,6 +13,18 @@ static const char *TAG = "HUB75";
 
 static Hub75Driver *s_driver = nullptr;
 
+static uint16_t s_black_frame[MATRIX_WIDTH * MATRIX_HEIGHT];
+
+static void hub75_fill_black(void)
+{
+    if (!s_driver) {
+        return;
+    }
+    memset(s_black_frame, 0, sizeof(s_black_frame));
+    s_driver->draw_pixels(0, 0, MATRIX_WIDTH, MATRIX_HEIGHT, (const uint8_t *)s_black_frame, Hub75PixelFormat::RGB565, Hub75ColorOrder::RGB, false);
+    s_driver->flip_buffer();
+}
+
 #pragma pack(push, 1)
 typedef struct {
     uint32_t id;
@@ -102,6 +114,14 @@ static void hub75_play_buffer(uint8_t *data, size_t bin_size)
                 return;
             }
 
+            /* Une nouvelle commande GIF a ete decodee : on arrete la lecture
+             * en cours pour basculer dessus (utile pour le mode "en boucle"). */
+            uint8_t *next = getGifPsram(1);
+            if (next && next != data) {
+                ESP_LOGI(TAG, "Nouveau GIF disponible - interruption de la lecture");
+                return;
+            }
+
             int64_t frame_start_us = esp_timer_get_time();
 
             uint16_t delay_ms;
@@ -143,6 +163,11 @@ void hub75_run(void)
             setGifPsramState(data, 2);
             hub75_play_buffer(data, getGifPsramLen(data));
             resetGifPsram(data);
+
+            /* Ecran noir si aucun autre GIF n'attend deja en file. */
+            if (!getGifPsram(1)) {
+                hub75_fill_black();
+            }
         }
         vTaskDelay(pdMS_TO_TICKS(100));
     }

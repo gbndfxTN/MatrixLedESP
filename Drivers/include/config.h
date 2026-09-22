@@ -29,3 +29,7 @@
 // WiFi
 #define WIFI_CONNECT_TIMEOUT_MS       20000
 #define NTP_TIMEOUT_MS                10000
+
+// Telegram Bot API (poll getUpdates, token dans secrets.h)
+#define TELEGRAM_API_BASE           "https://api.telegram.org/bot"
+#define TELEGRAM_POLL_TIMEOUT_S     20
